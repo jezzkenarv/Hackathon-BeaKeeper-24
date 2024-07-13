@@ -30,7 +30,7 @@ contract MerkleProofTest is Test {
             bytes32 zeroesParentNode
         ) = proof.calculateProofNodes(slot, proposerIndex, parentRoot, stateRoot, bodyRoot);
 
-        bytes32 finalRoot = proof.calculateFinalRoot(
+        bytes32 finalRoot = proof.calculateBlockRoot(
             slotAndProposerIndexNode, parentAndStateRootNode, bodyAndZeroNode, zeroesParentNode
         );
         console.logBytes32(finalRoot);

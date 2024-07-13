@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity >=0.8.0 <0.9.0;
 
-import {stdJson} from "forge-std/StdJson.sol";
-
 contract ProposerBlockProof {
-
-    address beaconRootsContract;  
+    address beaconRootsContract;
     uint256 public GENESIS_TIMESTAMP;
+
+    mapping(uint256 => uint256) public proposerIndexes;
 
     // make sure that the slot is within the last 8191 slots
     // fetch beacon block from beacon node
@@ -45,7 +44,7 @@ contract ProposerBlockProof {
         zeroesParentNode = sha256(abi.encodePacked(zero, zero));
     }
 
-    function calculateFinalRoot(
+    function calculateBlockRoot(
         bytes32 slotAndProposerIndexNode,
         bytes32 parentAndStateRootNode,
         bytes32 bodyAndZeroNode,
@@ -58,6 +57,41 @@ contract ProposerBlockProof {
 
     function verifyRoot(bytes32 finalRoot, bytes32 blockRoot) public pure returns (bool) {
         return finalRoot == blockRoot;
+    }
+
+    // If proof is verified, store the block to a mapping so that users can access data
+    function storeProposerIndex(
+        uint256 slot,
+        uint256 proposerIndex,
+        bytes32 parentRoot,
+        bytes32 stateRoot,
+        bytes32 bodyRoot
+    ) public {
+        // Reconstruction of the block root
+        (
+            bytes32 slotAndProposerIndexNode,
+            bytes32 parentAndStateRootNode,
+            bytes32 bodyAndZeroNode,
+            bytes32 zeroesParentNode
+        ) = calculateProofNodes(uint64(slot), uint64(proposerIndex), parentRoot, stateRoot, bodyRoot);
+
+        bytes32 blockRoot =
+            calculateBlockRoot(slotAndProposerIndexNode, parentAndStateRootNode, bodyAndZeroNode, zeroesParentNode);
+
+        // Fetch the on-chain block root, note must use slot + 1 to fetch parent root from the child block
+        (bool success, bytes32 beaconRootFromChain) = getParentRootFromSlot(slot + 1);
+        require(success);
+        assert(verifyRoot(blockRoot, beaconRootFromChain));
+
+        // If we made it here, it means the proposerIndex corresponded to this slot
+        proposerIndexes[slot] = proposerIndex;
+    }
+
+    function getProposerIndexAtTimestamp(
+        uint256 timestamp
+    ) public returns (uint256) {
+        uint256 slot = timeStampToSlot(timestamp);
+        return proposerIndexes[slot];
     }
 
     // source from beacon deposit contract
@@ -75,31 +109,21 @@ contract ProposerBlockProof {
         ret[7] = bytesValue[0];
     }
 
-    // move to test
-    // function _getBlockHeader(uint256 slot) internal view returns (bytes memory) {
-    //     string[] memory inputs = new string[](2);
-    //     inputs[0] = "./shell-scripts/getBeaconBlockHeader.sh";
-    //     inputs[1] = vm.toString(slot);
-    //     return vm.ffi(inputs);
-    // }
-
-    function getRootFromTimestamp(uint256 timestamp) public returns (bool, bytes32) {
-        (bool ret, bytes memory data) = beaconRootsContract.call(bytes.concat(bytes32(timestamp)));
+    function getParentRootFromTimestamp(uint256 timestamp) public returns (bool, bytes32) {
+        (bool ret, bytes memory data) = address(beaconRootsContract).call(bytes.concat(bytes32(timestamp)));
         return (ret, bytes32(data));
     }
-    
+
     function slotToTimestamp(uint256 slot) public view returns (uint256) {
         return slot * 12 + GENESIS_TIMESTAMP;
     }
 
-    function getRootFromSlot(uint256 slot) public returns (bool, bytes32) {
+    function getParentRootFromSlot(uint256 slot) public returns (bool, bytes32) {
         uint256 timestamp = slotToTimestamp(slot);
-        return getRootFromTimestamp(timestamp);
+        return getParentRootFromTimestamp(timestamp);
     }
 
-    function timeStampToSlot(uint256 timestamp) internal view returns (uint256) {
+    function timeStampToSlot(uint256 timestamp) public view returns (uint256) {
         return (timestamp - GENESIS_TIMESTAMP) / 12;
     }
-
-    // if proof is verified, store the block to a mapping so that users can access data
 }

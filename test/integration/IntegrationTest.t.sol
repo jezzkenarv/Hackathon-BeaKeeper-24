@@ -1,87 +1,82 @@
 // SPDX-License-Identifier: GPL-3.0
 
-pragma solidity ^0.8.18;
+pragma solidity >=0.8.0 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {ProposerBlockProof} from "src/BeaconProof.sol";
 import {console} from "forge-std/console.sol";
 
-
-
-contract 4788Test is Test {
-
+contract Integration4788Test is Test {
     uint256 public HOLESKY_GENESIS_BLOCK = 1695902400;
-    Mock4788 public beaconRootsContract;
-    address beaconRootsContractAddr;
+    // same on holesky and mainnet
+    address beaconRootsContract = 0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02;
+    ProposerBlockProof prover;
 
     function setUp() public {
-        beaconRootsContract = new Mock4788(HOLESKY_GENESIS_BLOCK);
-        beaconRootsContractAddr = address(beaconRootsContract);
+        prover = new ProposerBlockProof(HOLESKY_GENESIS_BLOCK, beaconRootsContract);
     }
 
-    function testFetchChildRoot() public {
-        uint256 timestamp = HOLESKY_GENESIS_BLOCK;
-        (bool success, bytes memory parentRoot) = beaconRootsContractAddr.call(
-            bytes.concat(bytes32(timestamp))
-        );
-        assert(success);
-        assertEq(parentRoot, hex"721c09025a9842ed2b17663fa256fa662adf00021f5e9e73c98164ce56ab1f5e");
+    // Helper function to get beacon block header from beacon node via ffi script
+    function getBeaconBlockHeader(uint256 slot) internal returns (bytes memory) {
+        string[] memory inputs = new string[](2);
+        inputs[0] = "./shell-scripts/getBeaconBlockHeader.sh";
+        inputs[1] = vm.toString(slot);
+        return vm.ffi(inputs);
     }
 
-    function testFetchParentRoot() public {
-        uint256 timestamp = HOLESKY_GENESIS_BLOCK + 12;
-        (bool success, bytes memory parentRoot) = beaconRootsContractAddr.call(
-            bytes.concat(bytes32(timestamp))
-        );
-        assert(success);
-        assertEq(parentRoot, hex"44724d6135eae996ecbf722688d33f5d8bd5b60c7c34f8f22c35a3582ca1e553");
-    }
-
-    function testFoo() public {
-        ProposerBlockProof prover = new ProposerBlockProof(HOLESKY_GENESIS_BLOCK, beaconRootsContractAddr);
-
-        uint256 timestamp = HOLESKY_GENESIS_BLOCK + 12;
-        (bool success, bytes32 parentRoot) = prover.getRootFromTimestamp(timestamp);
-        assert(success);
-        assertEq(parentRoot, hex"44724d6135eae996ecbf722688d33f5d8bd5b60c7c34f8f22c35a3582ca1e553");
-    }
-
-    // function testFoo() public {
-    //     ProposerBlockProof prover = new ProposerBlockProof(HOLESKY_GENESIS_BLOCK, beaconRootsContractAddr);
-
-    //     uint256 timestamp = HOLESKY_GENESIS_BLOCK + 12;
-    //     (bool success, bytes32 parentRoot) = prover.getRootFromTimestamp(timestamp);
-    //     assert(success);
-    //     assertEq(parentRoot, hex"44724d6135eae996ecbf722688d33f5d8bd5b60c7c34f8f22c35a3582ca1e553");
-    // }
-
+    // same test but on real-time holesky eip-4788 data
     function testVerifyProposerProof() public {
-        ProposerBlockProof prover = new ProposerBlockProof(HOLESKY_GENESIS_BLOCK, beaconRootsContractAddr);
-        bytes32 bodyRoot = hex"43edde79a9551e4a9ee5c95bcdacb929ddeb587d1b34851b709808ba968852cb";
-        bytes32 parentRoot = hex"721c09025a9842ed2b17663fa256fa662adf00021f5e9e73c98164ce56ab1f5e";
-        bytes32 stateRoot = hex"71a3692f7266b7c71d102af85145fc36d58c97b1d740771eb08e0649da1d2a7a";
-        uint64 proposerIndex = 162833;
-        uint64 slot = 2080878;
+        require(block.chainid == 17000, "Must be Holesky RPC");
 
+        // Fetch a recent beacon block header (at least 1 less than the head)
+        uint256 slot = prover.timeStampToSlot(block.timestamp) - 1; // get a recent slot
+        string memory beaconBlockHeaderJSON = string(getBeaconBlockHeader(slot));
+
+        // Parse beacon block header JSON
+        bytes32 bodyRoot = vm.parseJsonBytes32(beaconBlockHeaderJSON, ".body_root");
+        bytes32 parentRoot = vm.parseJsonBytes32(beaconBlockHeaderJSON, ".parent_root");
+        bytes32 stateRoot = vm.parseJsonBytes32(beaconBlockHeaderJSON, ".state_root");
+        uint256 proposerIndex = vm.parseJsonUint(beaconBlockHeaderJSON, ".proposer_index");
+
+        // Generate the proof
         (
             bytes32 slotAndProposerIndexNode,
             bytes32 parentAndStateRootNode,
             bytes32 bodyAndZeroNode,
             bytes32 zeroesParentNode
-        ) = prover.calculateProofNodes(slot, proposerIndex, parentRoot, stateRoot, bodyRoot);
+        ) = prover.calculateProofNodes(uint64(slot), uint64(proposerIndex), parentRoot, stateRoot, bodyRoot);
 
-        bytes32 finalRoot = prover.calculateFinalRoot(
+        // Generate the block root
+        bytes32 blockRoot = prover.calculateBlockRoot(
             slotAndProposerIndexNode, parentAndStateRootNode, bodyAndZeroNode, zeroesParentNode
         );
 
-// get real block root from 4788
+        // Get real block root from 4788 contract, note must use slot + 1 to fetch parent root from the child block
+        (bool success, bytes32 beaconRootFromChain) = prover.getParentRootFromSlot(slot + 1);
+        assertTrue(success, "4788 call failed");
 
-        uint256 timestamp = HOLESKY_GENESIS_BLOCK;
-        (bool success, bytes32 blockRoot) = prover.getRootFromTimestamp(timestamp + 12);
-        assert(success);
-
-        bool isValid = prover.verifyRoot(finalRoot, blockRoot);
+        // Compare to the beacon root from chain
+        bool isValid = prover.verifyRoot(blockRoot, beaconRootFromChain);
         assertTrue(isValid, "Root verification failed");
     }
 
+    // same test but on real-time holesky eip-4788 data
+    function testSaveProposerIndex() public {
+       require(block.chainid == 17000, "Must be Holesky RPC");
+
+        // Fetch a recent beacon block header (at least 1 less than the head)
+        uint256 slot = prover.timeStampToSlot(block.timestamp) - 1; // get a recent slot
+        string memory beaconBlockHeaderJSON = string(getBeaconBlockHeader(slot));
+
+        // Parse beacon block header JSON
+        bytes32 bodyRoot = vm.parseJsonBytes32(beaconBlockHeaderJSON, ".body_root");
+        bytes32 parentRoot = vm.parseJsonBytes32(beaconBlockHeaderJSON, ".parent_root");
+        bytes32 stateRoot = vm.parseJsonBytes32(beaconBlockHeaderJSON, ".state_root");
+        uint256 proposerIndex = vm.parseJsonUint(beaconBlockHeaderJSON, ".proposer_index");
+
+        prover.storeProposerIndex(uint64(slot), uint64(proposerIndex), parentRoot, stateRoot, bodyRoot);
+
+        assertEq(prover.proposerIndexes(slot), proposerIndex);
+        assertEq(prover.getProposerIndexAtTimestamp(block.timestamp - 12), proposerIndex);
+    }
 }

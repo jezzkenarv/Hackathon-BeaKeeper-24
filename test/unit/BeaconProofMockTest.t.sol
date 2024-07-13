@@ -14,8 +14,10 @@ contract Mock4788 {
     mapping(bytes => bytes) public parentRoots;
 
     constructor(uint256 startTimeStamp) {
-        parentRoots[bytes.concat(bytes32(startTimeStamp))] = hex"721c09025a9842ed2b17663fa256fa662adf00021f5e9e73c98164ce56ab1f5e";
-        parentRoots[bytes.concat(bytes32(uint256(startTimeStamp + 12)))] = hex"44724d6135eae996ecbf722688d33f5d8bd5b60c7c34f8f22c35a3582ca1e553";
+        parentRoots[bytes.concat(bytes32(startTimeStamp))] =
+            hex"721c09025a9842ed2b17663fa256fa662adf00021f5e9e73c98164ce56ab1f5e";
+        parentRoots[bytes.concat(bytes32(uint256(startTimeStamp + 12)))] =
+            hex"44724d6135eae996ecbf722688d33f5d8bd5b60c7c34f8f22c35a3582ca1e553";
     }
 
     fallback(bytes calldata timestamp) external returns (bytes memory) {
@@ -28,48 +30,49 @@ contract Mock4788Test is Test {
     Mock4788 public beaconRootsContract;
     address beaconRootsContractAddr;
 
+    // Initializes the Mock4788 contract with the Holesky genesis block timestamp
+    // Deploys the Mock4788 contract and stores the address in beaconRootsContractAddr
     function setUp() public {
         beaconRootsContract = new Mock4788(HOLESKY_GENESIS_BLOCK);
         beaconRootsContractAddr = address(beaconRootsContract);
     }
 
-    function testFetchChildRoot() public {
+    // Tests fetching the parent root for the genesis block timestamp
+    function testFetchParentRootSlot0() public {
         uint256 timestamp = HOLESKY_GENESIS_BLOCK;
-        (bool success, bytes memory parentRoot) = beaconRootsContractAddr.call(
-            bytes.concat(bytes32(timestamp))
-        );
+        (bool success, bytes memory parentRoot) = beaconRootsContractAddr.call(bytes.concat(bytes32(timestamp)));
         assert(success);
         assertEq(parentRoot, hex"721c09025a9842ed2b17663fa256fa662adf00021f5e9e73c98164ce56ab1f5e");
     }
 
-    function testFetchParentRoot() public {
+    // Tests fetching the parent root for the genesis block timestamp (timestamp + 12)
+    function testFetchParentRootSlot1() public {
         uint256 timestamp = HOLESKY_GENESIS_BLOCK + 12;
-        (bool success, bytes memory parentRoot) = beaconRootsContractAddr.call(
-            bytes.concat(bytes32(timestamp))
-        );
+        (bool success, bytes memory parentRoot) = beaconRootsContractAddr.call(bytes.concat(bytes32(timestamp)));
         assert(success);
         assertEq(parentRoot, hex"44724d6135eae996ecbf722688d33f5d8bd5b60c7c34f8f22c35a3582ca1e553");
     }
 
-    function testFoo() public {
+    function testFetchParentRootSlot0UsingProposerBlockProof() public {
+        ProposerBlockProof prover = new ProposerBlockProof(HOLESKY_GENESIS_BLOCK, beaconRootsContractAddr);
+
+        uint256 timestamp = HOLESKY_GENESIS_BLOCK;
+        (bool success, bytes32 parentRoot) = prover.getParentRootFromTimestamp(timestamp);
+        assert(success);
+        assertEq(parentRoot, hex"721c09025a9842ed2b17663fa256fa662adf00021f5e9e73c98164ce56ab1f5e");
+    }
+
+    // Tests fetching a parent root using the ProposerBlockProof contract.
+    function testFetchParentRootSlot1UsingProposerBlockProof() public {
         ProposerBlockProof prover = new ProposerBlockProof(HOLESKY_GENESIS_BLOCK, beaconRootsContractAddr);
 
         uint256 timestamp = HOLESKY_GENESIS_BLOCK + 12;
-        (bool success, bytes32 parentRoot) = prover.getRootFromTimestamp(timestamp);
+        (bool success, bytes32 parentRoot) = prover.getParentRootFromTimestamp(timestamp);
         assert(success);
         assertEq(parentRoot, hex"44724d6135eae996ecbf722688d33f5d8bd5b60c7c34f8f22c35a3582ca1e553");
     }
 
-    // function testFoo() public {
-    //     ProposerBlockProof prover = new ProposerBlockProof(HOLESKY_GENESIS_BLOCK, beaconRootsContractAddr);
-
-    //     uint256 timestamp = HOLESKY_GENESIS_BLOCK + 12;
-    //     (bool success, bytes32 parentRoot) = prover.getRootFromTimestamp(timestamp);
-    //     assert(success);
-    //     assertEq(parentRoot, hex"44724d6135eae996ecbf722688d33f5d8bd5b60c7c34f8f22c35a3582ca1e553");
-    // }
-
-    function testVerifyProposerProof() public {
+    function testVerifyHardCodedProposerProof() public {
         ProposerBlockProof prover = new ProposerBlockProof(HOLESKY_GENESIS_BLOCK, beaconRootsContractAddr);
         bytes32 bodyRoot = hex"43edde79a9551e4a9ee5c95bcdacb929ddeb587d1b34851b709808ba968852cb";
         bytes32 parentRoot = hex"721c09025a9842ed2b17663fa256fa662adf00021f5e9e73c98164ce56ab1f5e";
@@ -84,18 +87,17 @@ contract Mock4788Test is Test {
             bytes32 zeroesParentNode
         ) = prover.calculateProofNodes(slot, proposerIndex, parentRoot, stateRoot, bodyRoot);
 
-        bytes32 finalRoot = prover.calculateFinalRoot(
+        bytes32 finalRoot = prover.calculateBlockRoot(
             slotAndProposerIndexNode, parentAndStateRootNode, bodyAndZeroNode, zeroesParentNode
         );
 
-// get real block root from 4788
+        // get real block root from 4788
 
         uint256 timestamp = HOLESKY_GENESIS_BLOCK;
-        (bool success, bytes32 blockRoot) = prover.getRootFromTimestamp(timestamp + 12);
+        (bool success, bytes32 blockRoot) = prover.getParentRootFromTimestamp(timestamp + 12);
         assert(success);
 
         bool isValid = prover.verifyRoot(finalRoot, blockRoot);
         assertTrue(isValid, "Root verification failed");
     }
-
 }
