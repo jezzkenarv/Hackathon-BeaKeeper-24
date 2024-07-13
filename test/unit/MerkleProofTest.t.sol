@@ -3,14 +3,16 @@
 pragma solidity ^0.8.18;
 
 import {Test} from "forge-std/Test.sol";
-import {ProposerBlockProof } from "src/BeaconProof.sol";
+import {ProposerBlockProof} from "src/BeaconProof.sol";
 import {console} from "forge-std/console.sol";
 
-contract ProposerBlockProofTest is Test {
+contract MerkleProofTest is Test {
     ProposerBlockProof proof;
+    uint256 HOLESKY_GENESIS_BLOCK = 1695902400;
+    address beaconRootsContract = 0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02;
 
     function setUp() public {
-        proof = new ProposerBlockProof();
+        proof = new ProposerBlockProof(HOLESKY_GENESIS_BLOCK, beaconRootsContract);
     }
 
     function testVerifyRoot() public {
@@ -20,7 +22,6 @@ contract ProposerBlockProofTest is Test {
         bytes32 stateRoot = hex"4119938f7e4966b151a8cc733fd34063ead0aa2760839b9fe98ac2db4f290250";
         uint64 proposerIndex = 1613222;
         uint64 slot = 2066124;
-        bytes32 zero = bytes32(0);
 
         (
             bytes32 slotAndProposerIndexNode,
@@ -38,6 +39,7 @@ contract ProposerBlockProofTest is Test {
         assertTrue(isValid, "Root verification failed");
     }
 
+    // test to ensure the slot number is within the 8191 blocks
 
+    // test that only verified block proofs are stored in the contract
 }
-     
