@@ -26,7 +26,8 @@ contract Integration4788Test is Test {
 
     // same test but on real-time holesky eip-4788 data
     function testVerifyProposerProof() public {
-        require(block.chainid == 17000, "Must be Holesky RPC");
+        require(block.chainid != 31337, "Must set either Holesky or Mainnet RPC");
+        
 
         // Fetch a recent beacon block header (at least 1 less than the head)
         uint256 slot = prover.timeStampToSlot(block.timestamp) - 1; // get a recent slot
@@ -62,7 +63,7 @@ contract Integration4788Test is Test {
 
     // same test but on real-time holesky eip-4788 data
     function testSaveProposerIndex() public {
-       require(block.chainid == 17000, "Must be Holesky RPC");
+        require(block.chainid != 31337, "Must set either Holesky or Mainnet RPC");
 
         // Fetch a recent beacon block header (at least 1 less than the head)
         uint256 slot = prover.timeStampToSlot(block.timestamp) - 1; // get a recent slot
