@@ -39,7 +39,4 @@ contract MerkleProofTest is Test {
         assertTrue(isValid, "Root verification failed");
     }
 
-    // test to ensure the slot number is within the 8191 blocks
-
-    // test that only verified block proofs are stored in the contract
 }
